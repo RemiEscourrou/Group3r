@@ -2,9 +2,7 @@
 using CommandLineParser.Exceptions;
 using Group3r.Concurrency;
 //using Nett;
-using NLog;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 
 namespace Group3r.Options
@@ -39,6 +37,7 @@ namespace Group3r.Options
             parser.Arguments.Add(new SwitchArgument('w', "findingsonly", "Only displays settings that had an associated finding.", false));
             parser.Arguments.Add(new ValueArgument<int>('a', "mintriage", "Minimum severity of findings to show where 1 is lowest severity and 4 is highest."));
             parser.Arguments.Add(new ValueArgument<string>('u', "testuser", "Permission checks will focus on what access is available to this user. Format as domain\\user"));
+            parser.Arguments.Add(new SwitchArgument('e', "enabled", "Only displays policy types and settings that are enabled.", false));
             return parser;
         }
 
@@ -61,11 +60,11 @@ namespace Group3r.Options
                 Environment.Exit(0);
             }
 
-        //   TomlSettings settings = TomlSettings.Create(cfg => cfg
-        //       .ConfigureType<LogLevel>(tc => tc
-        //           .WithConversionFor<TomlString>(conv => conv
-        //               .FromToml(s => (LogLevel)Enum.Parse(typeof(LogLevel), s.Value, ignoreCase: true))
-        //               .ToToml(e => e.ToString()))));
+            //   TomlSettings settings = TomlSettings.Create(cfg => cfg
+            //       .ConfigureType<LogLevel>(tc => tc
+            //           .WithConversionFor<TomlString>(conv => conv
+            //               .FromToml(s => (LogLevel)Enum.Parse(typeof(LogLevel), s.Value, ignoreCase: true))
+            //               .ToToml(e => e.ToString()))));
 
             parser.ParseCommandLine(args);
 
@@ -100,9 +99,6 @@ namespace Group3r.Options
                     //        mq.Info("Read config file from " + value);
                     //    }
                     //    return options;
-                    case "testuser":
-                        options.AssessmentOptions.TargetTrustees = new List<string>() { value };
-                        break;
                     case "offline":
                         options.OfflineMode = true;
                         break;
@@ -141,6 +137,10 @@ namespace Group3r.Options
                             options.TargetDomain = value;
                             mq.Degub("Target domain is " + value);
                         }
+                        break;
+                    case "enabled":
+                        options.EnabledPolOnly = true;
+                        mq.Degub("Limiting output to enabled policy only.");
                         break;
                     /*
                 case "username":

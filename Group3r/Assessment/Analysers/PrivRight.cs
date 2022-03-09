@@ -49,6 +49,10 @@ namespace Group3r.Assessment.Analysers
                                         {
                                             break;
                                         }
+                                        if (setting.Privilege == "SeImpersonatePrivilege")
+                                        {
+                                            break;
+                                        }
                                     }
 
                                     // finding
@@ -60,6 +64,21 @@ namespace Group3r.Assessment.Analysers
                                     };
                                     // add details
                                     findings.Add(gpoFinding);
+                                }
+                                else if (trusteeOption.Target)
+                                {
+                                    matched = true;
+                                    if ((int)MinTriage < 4)
+                                    {
+                                        // finding
+                                        GpoFinding gpoFinding = new GpoFinding
+                                        {
+                                            FindingReason = "Targeted user/group assigned an interesting OS privilege.",
+                                            FindingDetail = setting.Privilege + " was assigned to " + trustee.DisplayName + " - " + trustee.Sid,
+                                            Triage = Constants.Triage.Red
+                                        };
+                                        findings.Add(gpoFinding);
+                                    }
                                 }
                                 else
                                 {
@@ -79,79 +98,21 @@ namespace Group3r.Assessment.Analysers
                                 break;
                             }
                         }
-                        foreach (string targetuser in assessmentOptions.TargetTrustees)
-                        {
-                            if (trustee.DisplayName.ToLower() == targetuser)
-                            {
-                                matched = true;
-                                if ((int)MinTriage < 4)
-                                {
-                                    // finding
-                                    GpoFinding gpoFinding = new GpoFinding
-                                    {
-                                        FindingReason = "Targeted user/group assigned an interesting OS privilege.",
-                                        FindingDetail = setting.Privilege + " was assigned to " + trustee.DisplayName + " - " + trustee.Sid,
-                                        Triage = Constants.Triage.Red
-                                    };
-                                    findings.Add(gpoFinding);
-                                }
-                            }
-                        }
-                        if (matched == false)
-                        {
-                            if ((int)MinTriage < 2)
-                            {
-                                // finding
-                                GpoFinding gpoFinding = new GpoFinding
-                                {
-                                    FindingReason = "User/group assigned an interesting OS privilege. ",
-                                    FindingDetail = setting.Privilege + " was assigned to " + trustee.DisplayName + " - " + trustee.Sid,
-                                    Triage = Constants.Triage.Green
-                                };
-                                // add details
-                                findings.Add(gpoFinding);
-                            }
-                        }
                     }
                 }
+            }
+
+            if (setting.Source.Contains("NTFRS"))
+            {
+                setting.IsMorphed = true;
             }
 
             // put findings in settingResult
             SettingResult.Findings = findings;
 
-            // make a new setting object minus the ugly bits we don't care about.
-            SettingResult.Setting = CleanupSetting(setting);
-            //SettingResult.Setting = setting;
+            SettingResult.Setting = setting;
 
             return SettingResult;
         }
-
-
-        public PrivRightSetting CleanupSetting(PrivRightSetting setting)
-        {
-            PrivRightSetting cleanSetting = new PrivRightSetting();
-
-            if (!String.IsNullOrWhiteSpace(setting.Source))
-            {
-                cleanSetting.Source = setting.Source;
-            }
-
-            cleanSetting.PolicyType = setting.PolicyType;
-
-            if (!String.IsNullOrWhiteSpace(setting.Privilege))
-            {
-                cleanSetting.Privilege = setting.Privilege;
-            }
-
-            cleanSetting.TrusteeSids = null;
-
-            if (setting.Trustees.Count > 0)
-            {
-                cleanSetting.Trustees = setting.Trustees;
-            }
-
-            return cleanSetting;
-        }
-
     }
 }

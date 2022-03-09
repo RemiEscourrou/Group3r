@@ -20,11 +20,11 @@ namespace Group3r.Assessment
                 return new DeviceAnalyser() { setting = castSetting };
             }
             */
-            else if (setting.GetType() == typeof(DriveSetting))
-            {
-                DriveSetting castSetting = (DriveSetting)setting;
-                return new DriveAnalyser() { setting = castSetting };
-            }
+            //           else if (setting.GetType() == typeof(DriveSetting))
+            //           {
+            //               DriveSetting castSetting = (DriveSetting)setting;
+            //               return new DriveAnalyser() { setting = castSetting };
+            //           }
             /*
             else if (setting.GetType() == typeof(EnvVarSetting))
             {
@@ -39,6 +39,7 @@ namespace Group3r.Assessment
                 return new EventAuditAnalyser() { setting = castSetting };
             }
             */
+            //else if (setting.GetType() == typeof(FileSetting))
             else if (setting.GetType() == typeof(FileSetting))
             {
                 FileSetting castSetting = (FileSetting)setting;
@@ -62,22 +63,21 @@ namespace Group3r.Assessment
                 IniFileSetting castSetting = (IniFileSetting)setting;
                 return new IniFileAnalyser() { setting = castSetting };
             }
+            */
             else if (setting.GetType() == typeof(KerbPolicySetting))
             {
                 KerbPolicySetting castSetting = (KerbPolicySetting)setting;
                 return new KerbPolicyAnalyser() { setting = castSetting };
-            }
-            else if (setting.GetType() == typeof(NetOptionSetting))
+            }            else if (setting.GetType() == typeof(NetOptionSetting))
             {
                 NetOptionSetting castSetting = (NetOptionSetting)setting;
                 return new NetOptionAnalyser() { setting = castSetting };
             }
             else if (setting.GetType() == typeof(NetworkShareSetting))
             {
-                NetworkShareSetting castSetting = (NetworkShareSetting)setting;
-                return new NetworkShareAnalyser() { setting = castSetting };
+                NetworkShareSetting castSetting = (NetworkShareSetting) setting;
+                return new NetworkShareAnalyser() {setting = castSetting};
             }
-            */
             else if (setting.GetType() == typeof(NtServiceSetting))
             {
                 NtServiceSetting castSetting = (NtServiceSetting)setting;
@@ -118,16 +118,16 @@ namespace Group3r.Assessment
                 ShortcutSetting castSetting = (ShortcutSetting)setting;
                 return new ShortcutAnalyser() { setting = castSetting };
             }
-            else if (setting.GetType() == typeof(SystemAccessSetting))
-            {
-                SystemAccessSetting castSetting = (SystemAccessSetting)setting;
-                return new SystemAccessAnalyser() { setting = castSetting };
-            }
-            else if (setting.GetType() == typeof(UserSetting))
-            {
-                UserSetting castSetting = (UserSetting)setting;
-                return new UserAnalyser() { setting = castSetting };
-            }
+            //            else if (setting.GetType() == typeof(SystemAccessSetting))
+            //            {
+            //                SystemAccessSetting castSetting = (SystemAccessSetting)setting;
+            //                return new SystemAccessAnalyser() { setting = castSetting };
+            //            }
+            //            else if (setting.GetType() == typeof(UserSetting))
+            //            {
+            //                UserSetting castSetting = (UserSetting)setting;
+            //                return new UserAnalyser() { setting = castSetting };
+            //            }
             else
             {
                 return null;

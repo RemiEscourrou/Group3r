@@ -1,12 +1,12 @@
-﻿using System;
+﻿using ConsoleTables;
+using Group3r.Assessment;
+using Group3r.Options;
+using LibSnaffle.ActiveDirectory;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using Group3r.Assessment;
-using LibSnaffle.ActiveDirectory;
 using System.Text;
 using System.Xml;
-using Group3r.Options;
-using ConsoleTables;
 
 namespace Group3r.View
 {
@@ -16,7 +16,7 @@ namespace Group3r.View
     class NiceGpoPrinter : IGpoPrinter
     {
         private GrouperOptions grouperOptions;
-        private int indent = 4;
+        private int _indent = 4;
         /**
          * Summary: constructor
          * Arguments: none
@@ -45,6 +45,14 @@ namespace Group3r.View
             {
                 return "";
             }
+            // bail out entirely if both pol types are disabled and we are running with the -e flag.
+            if (grouperOptions.EnabledPolOnly == true)
+            {
+                if (!gpoResult.Attributes.ComputerPolicyEnabled && !gpoResult.Attributes.UserPolicyEnabled)
+                {
+                    return "";
+                }
+            }
 
             /*
              * GPO NAME AND ATTRIBUTES
@@ -63,11 +71,11 @@ namespace Group3r.View
                 gpoDisplayName = "(No Display Name)";
             }
             string columntwo = String.Format("{0} {1} {2}", gpoDisplayName, gpoResult.Attributes.Uid, morphed);
-            ConsoleTable gpoTable = new ConsoleTable("GPO",columntwo);
+            ConsoleTable gpoTable = new ConsoleTable("GPO", columntwo);
             gpoTable.AddRow("Date Created", gpoResult.Attributes.CreatedDate);
             gpoTable.AddRow("Date Modified", gpoResult.Attributes.ModifiedDate);
             gpoTable.AddRow("Path in SYSVOL", gpoResult.Attributes.PathInSysvol);
-           
+
             string computerPolicy = "Disabled";
             string userPolicy = "Disabled";
             if (gpoResult.Attributes.ComputerPolicyEnabled)
@@ -81,20 +89,44 @@ namespace Group3r.View
 
             gpoTable.AddRow("Computer Policy", computerPolicy);
             gpoTable.AddRow("User Policy", userPolicy);
-            
-            foreach (GPOLink gpoLink in gpoResult.Attributes.GpoLinks)
+
+            // if there are links, add them
+            if (gpoResult.Attributes.GpoLinks.Count >= 1)
             {
-                string linkPath = String.Format("{0} ({1})", gpoLink.LinkPath, gpoLink.LinkEnforced);
-                gpoTable.AddRow("Link", linkPath);
+                bool linkenabled = false;
+                foreach (GPOLink gpoLink in gpoResult.Attributes.GpoLinks)
+                {
+                    string linkPath = String.Format("{0} ({1})", gpoLink.LinkPath, gpoLink.LinkEnforced);
+                    // if at least one link isn't enabled...
+                    if (gpoLink.LinkEnforced.Contains("Enabled"))
+                    {
+                        linkenabled = true;
+                    }
+                    gpoTable.AddRow("Link", linkPath);
+                }
+                // and we're only showing enabled policies...
+                if (!linkenabled && grouperOptions.EnabledPolOnly)
+                {
+                    // bail out.
+                    return "";
+                }
             }
-            sb.AppendLine(gpoTable.ToMarkDownString());
+            else
+            {
+                // if there aren't any, and we're only showing enabled policy, bail out.
+                if (grouperOptions.EnabledPolOnly)
+                {
+                    return "";
+                }
+            }
+            sb.Append(gpoTable.ToMarkDownString());
             /*
             * Findings for GPO Attributes
             */
 
-            ConsoleTable gpoFindingTable = new ConsoleTable("Finding", "Placeholder");
-            gpoFindingTable.AddRow("This is where", "Findings about GPO ACLs will go.");
-            sb.AppendLine(IndentPara(gpoFindingTable.ToMarkDownString(), 1));
+            //ConsoleTable gpoFindingTable = new ConsoleTable("Finding", "Placeholder");
+            //gpoFindingTable.AddRow("This is where", "Findings about GPO ACLs will go.");
+            //sb.Append(IndentPara(gpoFindingTable.ToMarkDownString(), 1));
             //sb.AppendLine("Findings for GPO Attributes will go here.");
             /*
             if (gpoResult.GpoAttributeFindings.Count >= 1)
@@ -120,29 +152,47 @@ namespace Group3r.View
                     continue;
                 }
 
+                string settingMorphed = "";
+                if (sr.Setting.IsMorphed)
+                {
+                    if (grouperOptions.CurrentPolOnly)
+                    {
+                        //bail out because this is a morphed setting.
+                        continue;
+                    }
+                    settingMorphed = " - Morphed";
+                }
+
                 string poltype = "";
 
                 if (sr.Setting.PolicyType == PolicyType.Computer)
                 {
-                    poltype = "Computer Policy";
+                    // if computer policy is disabled on this GPO, skip it.
+                    if (grouperOptions.EnabledPolOnly && !gpoResult.Attributes.ComputerPolicyEnabled)
+                    {
+                        continue;
+                    }
+                    poltype = "Computer Policy" + settingMorphed;
                 }
                 else if (sr.Setting.PolicyType == PolicyType.User)
                 {
-                    poltype = "User Policy";
-
+                    if (grouperOptions.EnabledPolOnly && !gpoResult.Attributes.UserPolicyEnabled)
+                    {
+                        continue;
+                    }
+                    poltype = "User Policy" + settingMorphed;
                 }
-/*
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "Data Source");
+                else if (sr.Setting.PolicyType == PolicyType.Package)
+                {
+                    poltype = "Package Policy" + settingMorphed;
+                }
 
-                    sTable = TableAdd(sTable, "Name", cs.Name);
-
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
-*/
+                // big ol' list of output formatters that should be their own methods but i'm a MANIAC AND YOU CAN'T STOP ME!
                 if (sr.Setting.GetType() == typeof(DataSourceSetting))
                 {
                     DataSourceSetting cs = (DataSourceSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "Data Source");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Data Source");
 
                     sTable = TableAdd(sTable, "Name", cs.Name);
                     sTable = TableAdd(sTable, "Action", cs.Action.ToString());
@@ -152,17 +202,24 @@ namespace Group3r.View
                     sTable = TableAdd(sTable, "Cpassword", cs.Cpassword);
                     sTable = TableAdd(sTable, "Password", cs.DSN);
 
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(DeviceSetting))
                 {
                     DeviceSetting cs = (DeviceSetting)sr.Setting;
+
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Devices");
+                    sTable = TableAdd(sTable, "No Output Formatter For This Setting Type", "");
+
+                    //sTable = TableAdd(sTable, "Action", cs.FileAction);
+
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(DriveSetting))
                 {
                     DriveSetting cs = (DriveSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "Drive");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Drive");
 
                     sTable = TableAdd(sTable, "Name", cs.Name);
                     sTable = TableAdd(sTable, "Action", cs.Action.ToString());
@@ -172,41 +229,59 @@ namespace Group3r.View
                     sTable = TableAdd(sTable, "Cpassword", cs.Cpassword);
                     sTable = TableAdd(sTable, "Password", cs.Password);
 
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
 
                 }
                 else if (sr.Setting.GetType() == typeof(EnvVarSetting))
                 {
                     EnvVarSetting cs = (EnvVarSetting)sr.Setting;
 
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Env Variable");
+                    sTable = TableAdd(sTable, "No Output Formatter For This Setting Type", "");
+
+                    //sTable = TableAdd(sTable, "Action", cs.FileAction);
+
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(EventAuditSetting))
                 {
                     EventAuditSetting cs = (EventAuditSetting)sr.Setting;
 
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Audit Policy");
+                    sTable = TableAdd(sTable, "No Output Formatter For This Setting Type", "");
+
+                    //sTable = TableAdd(sTable, "Action", cs.FileAction);
+
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(FileSetting))
                 {
                     FileSetting cs = (FileSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "File");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "File");
 
                     sTable = TableAdd(sTable, "Action", cs.FileAction);
                     sTable = TableAdd(sTable, "FileName", cs.FileName);
                     sTable = TableAdd(sTable, "FromPath", cs.FromPath);
                     sTable = TableAdd(sTable, "TargetPath", cs.TargetPath);
 
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(FolderSetting))
                 {
                     FolderSetting cs = (FolderSetting)sr.Setting;
+
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Folder");
+
+                    //sTable = TableAdd(sTable, "Action", cs.FileAction);
+
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(GroupSetting))
                 {
                     GroupSetting cs = (GroupSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "Group");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Group");
 
                     sTable = TableAdd(sTable, "Name", cs.Name);
                     sTable = TableAdd(sTable, "Action", cs.Action.ToString());
@@ -214,43 +289,65 @@ namespace Group3r.View
                     sTable = TableAdd(sTable, "Delete All Groups", cs.DeleteAllGroups.ToString());
                     sTable = TableAdd(sTable, "Delete All Users", cs.DeleteAllUsers.ToString());
                     sTable = TableAdd(sTable, "Remove Accounts", cs.RemoveAccounts.ToString());
-                    
+
                     foreach (GroupSettingMember member in cs.Members)
                     {
                         string memberstring = member.Action + " " + member.Name + " " + member.ResolvedName + " " + member.Sid;
-                                      
+
                         sTable = TableAdd(sTable, "Member", memberstring);
                     }
 
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
 
                 }
                 else if (sr.Setting.GetType() == typeof(IniFileSetting))
                 {
                     IniFileSetting cs = (IniFileSetting)sr.Setting;
 
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Ini File");
+
+                    sTable = TableAdd(sTable, "No Output Formatter For This Setting Type", "");
+                    //sTable = TableAdd(sTable, "Action", cs.FileAction);
+
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(KerbPolicySetting))
                 {
                     KerbPolicySetting cs = (KerbPolicySetting)sr.Setting;
 
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Kerberos Policy");
+
+                    sTable = TableAdd(sTable, cs.Key, cs.Value);
+
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(NetOptionSetting))
                 {
                     NetOptionSetting cs = (NetOptionSetting)sr.Setting;
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Network Options");
 
+                    sTable = TableAdd(sTable, "No Output Formatter For This Setting Type", "");
+
+                    //sTable = TableAdd(sTable, "Action", cs.FileAction);
+
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(NetworkShareSetting))
                 {
                     NetworkShareSetting cs = (NetworkShareSetting)sr.Setting;
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Network Share");
 
+                    sTable = TableAdd(sTable, "No Output Formatter For This Setting Type", "");
+
+                    //sTable = TableAdd(sTable, "Action", cs.FileAction);
+
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(NtServiceSetting))
                 {
                     NtServiceSetting cs = (NtServiceSetting)sr.Setting;
 
-
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "Service");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Service");
 
                     sTable = TableAdd(sTable, "Name", cs.Name);
                     sTable = TableAdd(sTable, "Service Name", cs.ServiceName);
@@ -286,13 +383,13 @@ namespace Group3r.View
                     sTable = TableAdd(sTable, "Cpassword", cs.Cpassword);
                     sTable = TableAdd(sTable, "Password", cs.Password);
 
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(PackageSetting))
                 {
                     PackageSetting cs = (PackageSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "Package");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Package");
 
                     sTable = TableAdd(sTable, "Display Name", cs.DisplayName);
                     sTable = TableAdd(sTable, "CreatedDate", cs.CreatedDate.ToString());
@@ -305,13 +402,13 @@ namespace Group3r.View
                     sTable = TableAdd(sTable, "Product Code", cs.ProductCode.ToString());
                     sTable = TableAdd(sTable, "Upgrade Product Code", cs.UpgradeProductCode.ToString());
 
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(PrinterSetting))
                 {
                     PrinterSetting cs = (PrinterSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "Printer");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Printer");
 
                     sTable = TableAdd(sTable, "Name", cs.Name);
                     sTable = TableAdd(sTable, "Action", cs.Action.ToString());
@@ -321,15 +418,15 @@ namespace Group3r.View
                     sTable = TableAdd(sTable, "Cpassword", cs.Cpassword);
                     sTable = TableAdd(sTable, "Password", cs.Password);
 
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(PrivRightSetting))
                 {
                     PrivRightSetting cs = (PrivRightSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "User Rights Assignment");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "User Rights Assignment");
 
-                    sTable = TableAdd(sTable, " Privilege Name", cs.Privilege);
+                    sTable = TableAdd(sTable, "Privilege Name", cs.Privilege);
 
                     bool first = true;
                     string t = "Trustee";
@@ -344,7 +441,7 @@ namespace Group3r.View
                             t = "";
                         }
                         if (trustee.DisplayName == "Failed to resolve SID.")
-                        { 
+                        {
                             sTable = TableAdd(sTable, t, trustee.Sid);
                         }
                         else
@@ -352,13 +449,13 @@ namespace Group3r.View
                             sTable = TableAdd(sTable, t, trustee.DisplayName + " " + trustee.Sid);
                         }
                     }
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(RegistrySetting))
                 {
                     RegistrySetting cs = (RegistrySetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "Registry");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Registry");
 
                     sTable = TableAdd(sTable, "Name", cs.Name);
                     sTable = TableAdd(sTable, "Action", cs.Action.ToString());
@@ -372,21 +469,21 @@ namespace Group3r.View
                     }
 
                     Console.WriteLine(sTable.ToMarkDownString());
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(SchedTaskSetting))
                 {
                     SchedTaskSetting cs = (SchedTaskSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "Scheduled Task");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Scheduled Task");
 
                     sTable = TableAdd(sTable, "Name", cs.Name);
                     sTable = TableAdd(sTable, "Task Type", cs.TaskType.ToString());
                     sTable = TableAdd(sTable, "Description", cs.Description1);
                     sTable = TableAdd(sTable, "Enabled", cs.Enabled.ToString());
                     sTable = TableAdd(sTable, "Name", cs.Name);
-                    
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
 
                     if (cs.Principals.Count >= 1)
                     {
@@ -400,7 +497,7 @@ namespace Group3r.View
                             pTable = TableAdd(pTable, "Password", principal.Password);
                             pTable = TableAdd(pTable, "LogonType", principal.LogonType);
                             pTable = TableAdd(pTable, "RunLevel", principal.RunLevel);
-                            sb.AppendLine(IndentPara(pTable.ToMarkDownString(), 2));
+                            sb.Append(IndentPara(pTable.ToMarkDownString(), 2));
                             i++;
                         }
                     }
@@ -411,14 +508,13 @@ namespace Group3r.View
                         {
                             if (action.GetType() == typeof(SchedTaskEmailAction))
                             {
-                                SchedTaskEmailAction ca = (SchedTaskEmailAction) action;
+                                SchedTaskEmailAction ca = (SchedTaskEmailAction)action;
 
                                 ConsoleTable aTable = new ConsoleTable("Email Action", "");
                                 aTable = TableAdd(aTable, "From", ca.From);
                                 aTable = TableAdd(aTable, "To", ca.To);
                                 aTable = TableAdd(aTable, "Subject", ca.Subject);
                                 aTable = TableAdd(aTable, "Body", ca.Body);
-                                aTable = TableAdd(aTable, "Server", ca.Server);
                                 aTable = TableAdd(aTable, "Header Fields", ca.HeaderFields);
                                 aTable = TableAdd(aTable, "Server", ca.Server);
                                 if (ca.Attachments.Count >= 1)
@@ -426,30 +522,30 @@ namespace Group3r.View
                                     foreach (string attachment in ca.Attachments)
                                     {
                                         aTable = TableAdd(aTable, "Attachment", attachment);
-                                    }                                    
+                                    }
                                 }
-                                sb.AppendLine(IndentPara(aTable.ToMarkDownString(), 2));
+                                sb.Append(IndentPara(aTable.ToMarkDownString(), 2));
                             }
                             else if (action.GetType() == typeof(SchedTaskExecAction))
                             {
-                                SchedTaskExecAction ca = (SchedTaskExecAction) action;
+                                SchedTaskExecAction ca = (SchedTaskExecAction)action;
 
                                 ConsoleTable aTable = new ConsoleTable("Execute Action", "");
-                                sTable = TableAdd(sTable, "Command", ca.Command);
-                                sTable = TableAdd(sTable, "Args", ca.Args);
-                                sTable = TableAdd(sTable, "Working Directory", ca.WorkingDir);
-                              
-                                sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 2));
+                                sTable = TableAdd(aTable, "Command", ca.Command);
+                                sTable = TableAdd(aTable, "Args", ca.Args);
+                                sTable = TableAdd(aTable, "Working Directory", ca.WorkingDir);
+
+                                sb.Append(IndentPara(aTable.ToMarkDownString(), 2));
                             }
                             else if (action.GetType() == typeof(SchedTaskShowMessageAction))
                             {
-                                SchedTaskShowMessageAction ca = (SchedTaskShowMessageAction) action;
+                                SchedTaskShowMessageAction ca = (SchedTaskShowMessageAction)action;
 
                                 ConsoleTable aTable = new ConsoleTable("Message Action", "");
 
-                                sTable = TableAdd(sTable, "Title", ca.Title);
-                                sTable = TableAdd(sTable, "Body", ca.Body);
-                                sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 2));
+                                sTable = TableAdd(aTable, "Title", ca.Title);
+                                sTable = TableAdd(aTable, "Body", ca.Body);
+                                sb.Append(IndentPara(aTable.ToMarkDownString(), 2));
                             }
                         }
                     }
@@ -462,26 +558,26 @@ namespace Group3r.View
                             tTable = TableAdd(tTable, "", node.InnerXml);
                         }
 
-                        sb.AppendLine(IndentPara(tTable.ToMarkDownString(), 2));
+                        sb.Append(IndentPara(tTable.ToMarkDownString(), 2));
                     }
                 }
                 else if (sr.Setting.GetType() == typeof(ScriptSetting))
                 {
                     ScriptSetting cs = (ScriptSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "Script");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Script");
 
                     sTable = TableAdd(sTable, "Script Type", cs.ScriptType.ToString());
                     sTable = TableAdd(sTable, "CmdLine", cs.CmdLine);
                     sTable = TableAdd(sTable, "Args", cs.Parameters);
 
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(ShortcutSetting))
                 {
                     ShortcutSetting cs = (ShortcutSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "Shortcut");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "Shortcut");
 
                     sTable = TableAdd(sTable, "Name", cs.Name);
                     sTable = TableAdd(sTable, "Action", cs.Action.ToString());
@@ -494,22 +590,22 @@ namespace Group3r.View
                     sTable = TableAdd(sTable, "IconIndex", cs.IconIndex);
                     sTable = TableAdd(sTable, "Status", cs.Status);
 
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else if (sr.Setting.GetType() == typeof(SystemAccessSetting))
                 {
                     SystemAccessSetting cs = (SystemAccessSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "System Access");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "System Access");
                     sTable = TableAdd(sTable, cs.SettingName, cs.ValueString);
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
 
                 }
                 else if (sr.Setting.GetType() == typeof(UserSetting))
                 {
                     UserSetting cs = (UserSetting)sr.Setting;
 
-                    ConsoleTable sTable = new ConsoleTable(poltype + " | Setting", "User");
+                    ConsoleTable sTable = new ConsoleTable("Setting - " + poltype, "User");
 
                     sTable = TableAdd(sTable, "Name", cs.Name);
                     sTable = TableAdd(sTable, "Action", cs.Action.ToString());
@@ -521,11 +617,11 @@ namespace Group3r.View
                     sTable = TableAdd(sTable, "Password", cs.Password);
                     sTable = TableAdd(sTable, "PwNeverExpires", cs.PwNeverExpires.ToString());
 
-                    sb.AppendLine(IndentPara(sTable.ToMarkDownString(), 1));
+                    sb.Append(IndentPara(sTable.ToMarkDownString(), 1));
                 }
                 else
                 {
-
+                    throw new NotImplementedException("Trying to output a setting type with no output formatter: " + sr.Setting.GetType().ToString());
                 }
 
                 if (sr.Findings.Count >= 1)
@@ -549,14 +645,16 @@ namespace Group3r.View
             fTable = TableAdd(fTable, "Reason", finding.FindingReason);
             fTable = TableAdd(fTable, "Detail", finding.FindingDetail);
 
-            sb.AppendLine(IndentPara(fTable.ToMarkDownString(), 2));
+            sb.Append(IndentPara(fTable.ToMarkDownString(), 2));
 
+            /*
             if (finding.AclResult.Count >= 1)
             {
                 sb.AppendLine("...ACL.Finding.Details...");
                 sb.AppendLine(PrintNiceAces(finding.AclResult));
                 sb.AppendLine("......");
             }
+            */
 
             /*
             if (finding.PathFindings.Count >= 1)
@@ -585,7 +683,7 @@ namespace Group3r.View
             if (v2.Length > 80)
             {
                 IEnumerable<String> strchunks = ChunksUpto(v2, 80);
-                
+
                 bool first = true;
                 foreach (string chunk in strchunks)
                 {
@@ -619,11 +717,20 @@ namespace Group3r.View
             return sb.ToString();
         }
 
-        string IndentPara(string inString, int indentfactor)
+        string IndentPara(string inString, int indentfactor, bool tailOn = true)
         {
-            string istring = String.Concat(Enumerable.Repeat(" ", (indent * indentfactor)));
-            string result = istring + inString.Replace("\n", "\n" + istring);
-            return result;
+            string istring = String.Concat(Enumerable.Repeat(" ", _indent));
+            string fullindent = String.Concat(Enumerable.Repeat(istring, indentfactor));
+            string tailend = String.Concat(Enumerable.Repeat("_", (_indent - 1)));
+            string tail = "\\" + tailend;
+            StringBuilder sb = new StringBuilder();
+            string taildent = String.Concat(Enumerable.Repeat(istring, indentfactor - 1));
+            if (tailOn)
+            {
+                sb.Append(taildent + tail + "\r\n" + fullindent);
+            }
+            sb.Append(inString.Replace("\r\n", "\r\n" + fullindent));
+             return (sb.ToString().TrimEnd() + "\r\n");
         }
     }
 }
